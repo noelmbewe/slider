@@ -8,7 +8,7 @@
     "icon": "Text",
     "settings": [
       {
-        "type": "field",
+        "type": "text",
         "key": "field",
         "label": "Field"
       },
