@@ -25,9 +25,11 @@
   // Get current row data if available
   $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
   
-  // Sync with data context if field is specified
-  $: if (field && currentRow && typeof currentRow[field] !== 'undefined') {
+  // Sync with data context if field is specified - this should update when user changes
+  $: if (field && currentRow && currentRow.hasOwnProperty(field)) {
     isActive = !!currentRow[field]
+  } else if (field && $dataContext && $dataContext.hasOwnProperty(field)) {
+    isActive = !!$dataContext[field]
   }
   
   // Data context for child components
