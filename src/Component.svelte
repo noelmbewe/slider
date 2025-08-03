@@ -36,8 +36,7 @@
     value: isActive,
     field,
     label,
-    disabled,
-    [field]: isActive
+    disabled
   }
   
   const handleButtonClick = async () => {
@@ -112,13 +111,6 @@
           </div>
         </button>
       </div>
-      
-      <!-- Display validation errors if in a form -->
-      {#if fieldState?.fieldState?.error}
-        <div class="error-message">
-          {fieldState.fieldState.error}
-        </div>
-      {/if}
     </div>
     
     <slot />
@@ -175,11 +167,5 @@
 
   .toggle-inner-circle-active {
     margin-left: 25px;
-  }
-
-  .error-message {
-    color: var(--spectrum-global-color-red-600);
-    font-size: 12px;
-    margin-top: 4px;
   }
 </style>
