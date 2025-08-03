@@ -1,7 +1,7 @@
 <script>
   import { getContext } from "svelte"
 
-  const { styleable, Provider, builderStore, componentStore } = getContext("sdk")
+  const { styleable, Provider, dataProvider } = getContext("sdk")
   const component = getContext("component")
   
   // Props for styling
@@ -16,52 +16,68 @@
   export let validation = [];
   export let defaultValue = false;
   
-  // Get form context if this component is inside a form
+  // Get contexts
   const formContext = getContext("form")
-  const fieldGroupContext = getContext("field-group")
+  const dataContext = getContext("data") || dataProvider
   
   // Internal state
   let isActive = defaultValue;
   let fieldState = null;
   let fieldApi = null;
   
+  // Get current row data if available
+  $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
+  
   // Initialize field state if we're in a form
   $: if (formContext && field) {
     fieldState = formContext.registerField(
       field,
       "boolean",
-      defaultValue,
+      currentRow[field] ?? defaultValue,
       disabled,
       validation,
       { label }
     )
   }
   
-  // Sync with form field value
+  // Sync with form field value or data context
   $: if (fieldState) {
     fieldApi = fieldState.fieldApi
     isActive = fieldState.fieldState?.value ?? defaultValue
+  } else if (field && currentRow) {
+    // If not in a form, sync with data context
+    isActive = currentRow[field] ?? defaultValue
   }
   
   // Data context for child components
-  $: dataContext = {
+  $: componentDataContext = {
     isActive,
-    value: isActive, // Standard value property
+    value: isActive,
     field,
     label,
-    disabled
+    disabled,
+    [field]: isActive // Make the field value available by name
   }
   
-  const handleButtonClick = () => {
+  const handleButtonClick = async () => {
     if (disabled) return;
     
     const newValue = !isActive;
     
     if (fieldApi) {
-      // Update form field
+      // Update form field (this will handle saving when form is submitted)
       fieldApi.setValue(newValue)
+    } else if (field && dataContext?.update) {
+      // Update data source directly if not in a form
+      try {
+        await dataContext.update({
+          [field]: newValue
+        })
+      } catch (error) {
+        console.error("Failed to update field:", error)
+      }
     } else {
-      // Update local state if not in a form
+      // Update local state if no data binding
       isActive = newValue;
     }
     
@@ -86,7 +102,7 @@
 </script>
 
 <div use:styleable={$component.styles}>
-  <Provider data={dataContext}>
+  <Provider data={componentDataContext}>
     <div class="toggle-container">
       {#if label}
         <label class="toggle-label" for={`toggle-${field}`}>

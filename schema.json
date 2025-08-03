@@ -2,16 +2,50 @@
   "type": "component",
   "metadata": {},
   "schema": {
-    "name": "slider",
-    "friendlyName": "slider",
-    "description": "check box bolean slider",
-    "icon": "Text",
-    "settings": [
-      {
+    "name": "Custom Toggle",
+    "icon": "Toggle",
+    "description": "A custom toggle that works like a checkbox",
+    "category": "Form",
+    "props": {
+      "field": {
+        "type": "field",
+        "label": "Field",
+        "description": "The data field to bind this toggle to (e.g., isConsent)"
+      },
+      "label": {
         "type": "text",
-        "key": "text",
-        "label": "Text"
+        "label": "Label",
+        "description": "Label text for the toggle"
+      },
+      "disabled": {
+        "type": "boolean",
+        "label": "Disabled",
+        "defaultValue": false
+      },
+      "defaultValue": {
+        "type": "boolean",
+        "label": "Default Value",
+        "defaultValue": false
+      },
+      "inactiveColor": {
+        "type": "color",
+        "label": "Inactive Color",
+        "defaultValue": "#ccc"
+      },
+      "activeColor": {
+        "type": "color",
+        "label": "Active Color",
+        "defaultValue": "#4CAF50"
+      },
+      "accentColor": {
+        "type": "color",
+        "label": "Accent Color",
+        "defaultValue": "#fff"
+      },
+      "validation": {
+        "type": "validation",
+        "label": "Validation"
       }
-    ]
+    }
   }
 }
