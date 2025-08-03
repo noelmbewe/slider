@@ -1,7 +1,7 @@
 <script>
   import { getContext } from "svelte"
 
-  const { styleable, Provider, dataProvider } = getContext("sdk")
+  const { styleable, Provider } = getContext("sdk")
   const component = getContext("component")
   
   // Props for styling
@@ -9,44 +9,25 @@
   export let activeColor = "#4CAF50";
   export let accentColor = "#fff";
   
-  // Props for form integration (like standard Budibase components)
+  // Props for form integration
   export let field = "";
   export let label = "";
   export let disabled = false;
-  export let validation = [];
   export let defaultValue = false;
   
   // Get contexts
   const formContext = getContext("form")
-  const dataContext = getContext("data") || dataProvider
+  const dataContext = getContext("data")
   
   // Internal state
   let isActive = defaultValue;
-  let fieldState = null;
-  let fieldApi = null;
   
   // Get current row data if available
   $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
   
-  // Initialize field state if we're in a form
-  $: if (formContext && field) {
-    fieldState = formContext.registerField(
-      field,
-      "boolean",
-      currentRow[field] ?? defaultValue,
-      disabled,
-      validation,
-      { label }
-    )
-  }
-  
-  // Sync with form field value or data context
-  $: if (fieldState) {
-    fieldApi = fieldState.fieldApi
-    isActive = fieldState.fieldState?.value ?? defaultValue
-  } else if (field && currentRow) {
-    // If not in a form, sync with data context
-    isActive = currentRow[field] ?? defaultValue
+  // Sync with data context if field is specified
+  $: if (field && currentRow && typeof currentRow[field] !== 'undefined') {
+    isActive = !!currentRow[field]
   }
   
   // Data context for child components
@@ -56,7 +37,7 @@
     field,
     label,
     disabled,
-    [field]: isActive // Make the field value available by name
+    [field]: isActive
   }
   
   const handleButtonClick = async () => {
@@ -64,22 +45,28 @@
     
     const newValue = !isActive;
     
-    if (fieldApi) {
-      // Update form field (this will handle saving when form is submitted)
-      fieldApi.setValue(newValue)
-    } else if (field && dataContext?.update) {
-      // Update data source directly if not in a form
+    // Try to update through form context first
+    if (formContext && formContext.setValue && field) {
+      try {
+        formContext.setValue(field, newValue)
+      } catch (error) {
+        console.warn("Form setValue failed:", error)
+      }
+    }
+    
+    // Try to update through data context
+    if (field && dataContext?.update) {
       try {
         await dataContext.update({
           [field]: newValue
         })
       } catch (error) {
-        console.error("Failed to update field:", error)
+        console.warn("Data context update failed:", error)
       }
-    } else {
-      // Update local state if no data binding
-      isActive = newValue;
     }
+    
+    // Update local state
+    isActive = newValue;
     
     // Dispatch custom event for parent components
     component.dispatchEvent("change", { 
@@ -88,16 +75,11 @@
     });
   };
   
-  // Handle external value updates (for data binding)
+  // Expose methods for external control
   export const setValue = (value) => {
-    if (fieldApi) {
-      fieldApi.setValue(value)
-    } else {
-      isActive = !!value
-    }
+    isActive = !!value
   }
   
-  // Expose getValue for parent components
   export const getValue = () => isActive;
 </script>
 
