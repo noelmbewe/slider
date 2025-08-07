@@ -129,50 +129,62 @@
     // Try multiple methods to ensure the value is saved
     let updateSuccess = false;
     
-    // Method 1: Form context setValue (most reliable for Budibase forms)
-    if (formContext && typeof formContext.setValue === 'function') {
+    // Method 1: Use formApi.setValue (correct Budibase method)
+    if (formContext && formContext.formApi && typeof formContext.formApi.setValue === 'function') {
       try {
-        await formContext.setValue(field, valueToSave);
+        formContext.formApi.setValue(field, valueToSave);
         updateSuccess = true;
-        console.log("✅ Form setValue successful:", field, "=", valueToSave);
+        console.log("✅ formApi.setValue successful:", field, "=", valueToSave);
       } catch (error) {
-        console.warn("❌ Form setValue failed:", error);
+        console.warn("❌ formApi.setValue failed:", error);
       }
     }
     
-    // Method 2: Form context update (alternative method)
-    if (!updateSuccess && formContext && typeof formContext.update === 'function') {
+    // Method 2: Use formApi.updateValue (alternative)
+    if (!updateSuccess && formContext && formContext.formApi && typeof formContext.formApi.updateValue === 'function') {
+      try {
+        formContext.formApi.updateValue(field, valueToSave);
+        updateSuccess = true;
+        console.log("✅ formApi.updateValue successful:", field, "=", valueToSave);
+      } catch (error) {
+        console.warn("❌ formApi.updateValue failed:", error);
+      }
+    }
+    
+    // Method 3: Direct formState update
+    if (!updateSuccess && formContext && formContext.formState) {
+      try {
+        if (formContext.formState.values) {
+          formContext.formState.values[field] = valueToSave;
+          updateSuccess = true;
+          console.log("✅ formState.values update successful:", field, "=", valueToSave);
+        }
+      } catch (error) {
+        console.warn("❌ formState.values update failed:", error);
+      }
+    }
+    
+    // Method 4: Try dataSource if available
+    if (!updateSuccess && formContext && formContext.dataSource && typeof formContext.dataSource.setValue === 'function') {
+      try {
+        await formContext.dataSource.setValue(field, valueToSave);
+        updateSuccess = true;
+        console.log("✅ dataSource.setValue successful:", field, "=", valueToSave);
+      } catch (error) {
+        console.warn("❌ dataSource.setValue failed:", error);
+      }
+    }
+    
+    // Method 5: Try dataSource update
+    if (!updateSuccess && formContext && formContext.dataSource && typeof formContext.dataSource.update === 'function') {
       try {
         const updateData = {};
         updateData[field] = valueToSave;
-        await formContext.update(updateData);
+        await formContext.dataSource.update(updateData);
         updateSuccess = true;
-        console.log("✅ Form update successful:", field, "=", valueToSave);
+        console.log("✅ dataSource.update successful:", field, "=", valueToSave);
       } catch (error) {
-        console.warn("❌ Form update failed:", error);
-      }
-    }
-    
-    // Method 3: Direct form values update (for immediate UI feedback)
-    if (formContext && formContext.values) {
-      try {
-        formContext.values[field] = valueToSave;
-        console.log("✅ Direct form values update:", field, "=", valueToSave);
-      } catch (error) {
-        console.warn("❌ Direct form values update failed:", error);
-      }
-    }
-    
-    // Method 4: Data context update (for data sources)
-    if (!updateSuccess && dataContext && typeof dataContext.update === 'function') {
-      try {
-        const updateData = {};
-        updateData[field] = valueToSave;
-        await dataContext.update(updateData);
-        updateSuccess = true;
-        console.log("✅ Data context update successful:", field, "=", valueToSave);
-      } catch (error) {
-        console.warn("❌ Data context update failed:", error);
+        console.warn("❌ dataSource.update failed:", error);
       }
     }
     
@@ -196,7 +208,6 @@
     } catch (error) {
       console.warn("Error dispatching event:", error);
     }
-    
     // Final logging and error checking
     console.log("🔍 Toggle update summary:", {
       field,
@@ -204,15 +215,29 @@
       valueType: typeof valueToSave,
       updateSuccess,
       formContext: !!formContext,
-      formContextMethods: formContext ? Object.keys(formContext) : [],
-      formValues: formContext?.values ? formContext.values[field] : 'no form values',
-      dataContext: !!dataContext
+      formApiMethods: formContext?.formApi ? Object.keys(formContext.formApi) : 'no formApi',
+      formStateMethods: formContext?.formState ? Object.keys(formContext.formState) : 'no formState',
+      dataSourceMethods: formContext?.dataSource ? Object.keys(formContext.dataSource) : 'no dataSource',
+      formStateValues: formContext?.formState?.values ? formContext.formState.values[field] : 'no values'
     });
     
     if (!updateSuccess) {
       console.error("🚨 CRITICAL: Failed to update any form context - this will cause null value error!");
-      console.log("Available form context methods:", formContext ? Object.keys(formContext) : 'none');
-      console.log("Available data context methods:", dataContext ? Object.keys(dataContext) : 'none');
+      console.log("🔧 Try these debugging steps:");
+      console.log("1. Check if your component is inside a Form Block");
+      console.log("2. Check if the form is bound to a data source");
+      console.log("3. Verify the field name matches your database column");
+      
+      // Log available methods for debugging
+      if (formContext?.formApi) {
+        console.log("Available formApi methods:", Object.keys(formContext.formApi));
+      }
+      if (formContext?.formState) {
+        console.log("Available formState properties:", Object.keys(formContext.formState));
+      }
+      if (formContext?.dataSource) {
+        console.log("Available dataSource methods:", Object.keys(formContext.dataSource));
+      }
     }
   };
   
