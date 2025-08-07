@@ -107,84 +107,112 @@
     
     const newValue = !isActive;
     
-    // Update local state first
-    isActive = newValue;
+    // CRITICAL: Ensure we never send null, undefined, or any non-boolean value
+    const valueToSave = Boolean(newValue); // Force to proper boolean
     
-    // IMPORTANT: Ensure we're not passing null values
-    const valueToSave = newValue === true ? true : false; // Explicit boolean conversion
+    console.log("Toggle clicked:", {
+      field,
+      currentValue: isActive,
+      newValue: valueToSave,
+      type: typeof valueToSave
+    });
+    
+    // Update local state first
+    isActive = valueToSave;
+    
+    // Only proceed if we have a valid field name
+    if (!field) {
+      console.warn("No field specified for toggle - value won't be saved");
+      return;
+    }
     
     // Try multiple methods to ensure the value is saved
     let updateSuccess = false;
     
-    // Method 1: Form context setValue (most common for forms)
-    if (formContext && formContext.setValue && field) {
+    // Method 1: Form context setValue (most reliable for Budibase forms)
+    if (formContext && typeof formContext.setValue === 'function') {
       try {
         await formContext.setValue(field, valueToSave);
         updateSuccess = true;
-        console.log("Form setValue successful:", field, valueToSave);
+        console.log("✅ Form setValue successful:", field, "=", valueToSave);
       } catch (error) {
-        console.warn("Form setValue failed:", error);
+        console.warn("❌ Form setValue failed:", error);
       }
     }
     
-    // Method 2: Form context update
-    if (formContext && formContext.update && field && !updateSuccess) {
+    // Method 2: Form context update (alternative method)
+    if (!updateSuccess && formContext && typeof formContext.update === 'function') {
       try {
-        await formContext.update({
-          [field]: valueToSave
-        });
+        const updateData = {};
+        updateData[field] = valueToSave;
+        await formContext.update(updateData);
         updateSuccess = true;
-        console.log("Form update successful:", field, valueToSave);
+        console.log("✅ Form update successful:", field, "=", valueToSave);
       } catch (error) {
-        console.warn("Form update failed:", error);
+        console.warn("❌ Form update failed:", error);
       }
     }
     
-    // Method 3: Data context update
-    if (field && dataContext?.update && !updateSuccess) {
-      try {
-        await dataContext.update({
-          [field]: valueToSave
-        });
-        updateSuccess = true;
-        console.log("Data context update successful:", field, valueToSave);
-      } catch (error) {
-        console.warn("Data context update failed:", error);
-      }
-    }
-    
-    // Method 4: Try to update the form's internal state directly
-    if (formContext && formContext.values && field && !updateSuccess) {
+    // Method 3: Direct form values update (for immediate UI feedback)
+    if (formContext && formContext.values) {
       try {
         formContext.values[field] = valueToSave;
-        updateSuccess = true;
-        console.log("Direct form values update successful:", field, valueToSave);
+        console.log("✅ Direct form values update:", field, "=", valueToSave);
       } catch (error) {
-        console.warn("Direct form values update failed:", error);
+        console.warn("❌ Direct form values update failed:", error);
       }
     }
     
-    // Method 5: Dispatch change event
-    component.dispatchEvent("change", { 
-      value: valueToSave,
-      field: field,
-      component: component
-    });
+    // Method 4: Data context update (for data sources)
+    if (!updateSuccess && dataContext && typeof dataContext.update === 'function') {
+      try {
+        const updateData = {};
+        updateData[field] = valueToSave;
+        await dataContext.update(updateData);
+        updateSuccess = true;
+        console.log("✅ Data context update successful:", field, "=", valueToSave);
+      } catch (error) {
+        console.warn("❌ Data context update failed:", error);
+      }
+    }
     
-    // Additional logging for debugging
-    console.log("Toggle update summary:", {
+    // Method 5: Dispatch change event (fix the dispatchEvent error)
+    try {
+      if (component && typeof component.dispatchEvent === 'function') {
+        component.dispatchEvent("change", { 
+          value: valueToSave,
+          field: field,
+          component: component
+        });
+      } else {
+        // Alternative dispatch method for Budibase
+        if (typeof component?.dispatchComponentEvent === 'function') {
+          component.dispatchComponentEvent("change", { 
+            value: valueToSave,
+            field: field 
+          });
+        }
+      }
+    } catch (error) {
+      console.warn("Error dispatching event:", error);
+    }
+    
+    // Final logging and error checking
+    console.log("🔍 Toggle update summary:", {
       field,
       newValue: valueToSave,
+      valueType: typeof valueToSave,
       updateSuccess,
       formContext: !!formContext,
       formContextMethods: formContext ? Object.keys(formContext) : [],
-      dataContext: !!dataContext,
-      currentRow: !!currentRow,
-      formValues: formContext?.values
+      formValues: formContext?.values ? formContext.values[field] : 'no form values',
+      dataContext: !!dataContext
     });
     
-    if (!updateSuccess && field) {
-      console.error("FAILED TO UPDATE VALUE - This might cause the null error");
+    if (!updateSuccess) {
+      console.error("🚨 CRITICAL: Failed to update any form context - this will cause null value error!");
+      console.log("Available form context methods:", formContext ? Object.keys(formContext) : 'none');
+      console.log("Available data context methods:", dataContext ? Object.keys(dataContext) : 'none');
     }
   };
   
