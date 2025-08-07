@@ -13,19 +13,69 @@
   export let field = "";
   export let label = "";
   export let disabled = false;
-  export let defaultValue = false; // Keep as boolean for Budibase bindings
+  export let defaultValue = "false"; // Text input for JavaScript code
   export let value = null; // Allow external value binding
   
   // Get contexts
   const formContext = getContext("form")
   const dataContext = getContext("data")
   
-  // Internal state - use value prop if provided, otherwise defaultValue
-  let isActive = value !== null ? !!value : !!defaultValue;
+  // Function to safely evaluate JavaScript code
+  const evaluateDefaultValue = (code) => {
+    if (!code) return false;
+    
+    // Simple boolean strings
+    if (code === "true") return true;
+    if (code === "false") return false;
+    
+    // If it contains JavaScript-like syntax, try to evaluate
+    if (typeof code === 'string' && code.includes('$')) {
+      try {
+        // Access Budibase's $ function through window or globalThis
+        const budibaseHelper = (typeof window !== 'undefined' && window.$) || 
+                              (typeof globalThis !== 'undefined' && globalThis.$);
+        
+        if (!budibaseHelper) {
+          console.warn("Budibase $ helper not available");
+          return false;
+        }
+        
+        // Replace $ with the actual function call
+        let evaluationCode = code;
+        
+        // Create a function that executes the code
+        const funcBody = 'try {' +
+          (evaluationCode.includes('return') ? evaluationCode : 'return ' + evaluationCode) +
+          '} catch (e) {' +
+            'console.error("Error in default value evaluation:", e);' +
+            'return false;' +
+          '}';
+          
+        const func = new Function('$', funcBody);
+        
+        const result = func(budibaseHelper);
+        console.log("Evaluated default value:", code, "->", result);
+        return !!result;
+        
+      } catch (error) {
+        console.warn("Error evaluating defaultValue:", error);
+        return false;
+      }
+    }
+    
+    // Fallback: convert to boolean
+    return !!code;
+  };
+  
+  // Internal state - evaluate the defaultValue on initialization
+  let isActive = value !== null ? !!value : evaluateDefaultValue(defaultValue);
   
   // Watch for external value changes
   $: if (value !== null) {
     isActive = !!value;
+  } else {
+    // Re-evaluate defaultValue when it changes
+    isActive = evaluateDefaultValue(defaultValue);
   }
   
   // Get current row data if available
@@ -60,60 +110,63 @@
     // Update local state first
     isActive = newValue;
     
+    // IMPORTANT: Ensure we're not passing null values
+    const valueToSave = newValue === true ? true : false; // Explicit boolean conversion
+    
     // Try multiple methods to ensure the value is saved
     let updateSuccess = false;
     
-    // Method 1: Form context setValue
+    // Method 1: Form context setValue (most common for forms)
     if (formContext && formContext.setValue && field) {
       try {
-        await formContext.setValue(field, newValue);
+        await formContext.setValue(field, valueToSave);
         updateSuccess = true;
-        console.log("Form setValue successful:", field, newValue);
+        console.log("Form setValue successful:", field, valueToSave);
       } catch (error) {
         console.warn("Form setValue failed:", error);
       }
     }
     
     // Method 2: Form context update
-    if (formContext && formContext.update && field) {
+    if (formContext && formContext.update && field && !updateSuccess) {
       try {
         await formContext.update({
-          [field]: newValue
+          [field]: valueToSave
         });
         updateSuccess = true;
-        console.log("Form update successful:", field, newValue);
+        console.log("Form update successful:", field, valueToSave);
       } catch (error) {
         console.warn("Form update failed:", error);
       }
     }
     
     // Method 3: Data context update
-    if (field && dataContext?.update) {
+    if (field && dataContext?.update && !updateSuccess) {
       try {
         await dataContext.update({
-          [field]: newValue
+          [field]: valueToSave
         });
         updateSuccess = true;
-        console.log("Data context update successful:", field, newValue);
+        console.log("Data context update successful:", field, valueToSave);
       } catch (error) {
         console.warn("Data context update failed:", error);
       }
     }
     
-    // Method 4: Direct row update if available
-    if (currentRow && field) {
+    // Method 4: Try to update the form's internal state directly
+    if (formContext && formContext.values && field && !updateSuccess) {
       try {
-        currentRow[field] = newValue;
+        formContext.values[field] = valueToSave;
         updateSuccess = true;
-        console.log("Direct row update successful:", field, newValue);
+        console.log("Direct form values update successful:", field, valueToSave);
       } catch (error) {
-        console.warn("Direct row update failed:", error);
+        console.warn("Direct form values update failed:", error);
       }
     }
     
     // Method 5: Dispatch change event
     component.dispatchEvent("change", { 
-      value: newValue,
+      value: valueToSave,
       field: field,
       component: component
     });
@@ -121,13 +174,18 @@
     // Additional logging for debugging
     console.log("Toggle update summary:", {
       field,
-      newValue,
+      newValue: valueToSave,
       updateSuccess,
       formContext: !!formContext,
+      formContextMethods: formContext ? Object.keys(formContext) : [],
       dataContext: !!dataContext,
       currentRow: !!currentRow,
       formValues: formContext?.values
     });
+    
+    if (!updateSuccess && field) {
+      console.error("FAILED TO UPDATE VALUE - This might cause the null error");
+    }
   };
   
   // Expose methods for external control
