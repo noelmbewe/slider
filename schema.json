@@ -24,10 +24,10 @@
         "defaultValue": false
       },
       {
-        "type": "boolean",
+        "type": "text",
         "key": "defaultValue",
         "label": "Default Value",
-        "defaultValue": false
+        "defaultValue": "false"
       },
       {
         "type": "color",

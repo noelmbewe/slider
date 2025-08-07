@@ -13,14 +13,17 @@
   export let field = "";
   export let label = "";
   export let disabled = false;
-  export let defaultValue = false;
+  export let defaultValue = "false"; // Now comes as string
   
   // Get contexts
   const formContext = getContext("form")
   const dataContext = getContext("data")
   
+  // Convert string defaultValue to boolean
+  $: parsedDefaultValue = defaultValue === "true" || defaultValue === true;
+  
   // Internal state
-  let isActive = defaultValue;
+  let isActive = parsedDefaultValue;
   
   // Get current row data if available
   $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
