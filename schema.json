@@ -24,10 +24,15 @@
         "defaultValue": false
       },
       {
-        "type": "text",
+        "type": "boolean",
         "key": "defaultValue",
         "label": "Default Value",
-        "defaultValue": "false"
+        "defaultValue": false
+      },
+      {
+        "type": "binding",
+        "key": "value",
+        "label": "Value Binding"
       },
       {
         "type": "color",

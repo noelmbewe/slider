@@ -13,26 +13,34 @@
   export let field = "";
   export let label = "";
   export let disabled = false;
-  export let defaultValue = "false"; // Now comes as string
+  export let defaultValue = false; // Keep as boolean for Budibase bindings
+  export let value = null; // Allow external value binding
   
   // Get contexts
   const formContext = getContext("form")
   const dataContext = getContext("data")
   
-  // Convert string defaultValue to boolean
-  $: parsedDefaultValue = defaultValue === "true" || defaultValue === true;
+  // Internal state - use value prop if provided, otherwise defaultValue
+  let isActive = value !== null ? !!value : !!defaultValue;
   
-  // Internal state
-  let isActive = parsedDefaultValue;
+  // Watch for external value changes
+  $: if (value !== null) {
+    isActive = !!value;
+  }
   
   // Get current row data if available
   $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
   
-  // Sync with data context if field is specified - this should update when user changes
+  // Sync with data context if field is specified
   $: if (field && currentRow && currentRow.hasOwnProperty(field)) {
     isActive = !!currentRow[field]
   } else if (field && $dataContext && $dataContext.hasOwnProperty(field)) {
     isActive = !!$dataContext[field]
+  }
+  
+  // Watch for changes in form data and sync
+  $: if (formContext && formContext.values && field && formContext.values.hasOwnProperty(field)) {
+    isActive = !!formContext.values[field];
   }
   
   // Data context for child components
@@ -49,39 +57,85 @@
     
     const newValue = !isActive;
     
-    // Try to update through form context first
+    // Update local state first
+    isActive = newValue;
+    
+    // Try multiple methods to ensure the value is saved
+    let updateSuccess = false;
+    
+    // Method 1: Form context setValue
     if (formContext && formContext.setValue && field) {
       try {
-        formContext.setValue(field, newValue)
+        await formContext.setValue(field, newValue);
+        updateSuccess = true;
+        console.log("Form setValue successful:", field, newValue);
       } catch (error) {
-        console.warn("Form setValue failed:", error)
+        console.warn("Form setValue failed:", error);
       }
     }
     
-    // Try to update through data context
+    // Method 2: Form context update
+    if (formContext && formContext.update && field) {
+      try {
+        await formContext.update({
+          [field]: newValue
+        });
+        updateSuccess = true;
+        console.log("Form update successful:", field, newValue);
+      } catch (error) {
+        console.warn("Form update failed:", error);
+      }
+    }
+    
+    // Method 3: Data context update
     if (field && dataContext?.update) {
       try {
         await dataContext.update({
           [field]: newValue
-        })
+        });
+        updateSuccess = true;
+        console.log("Data context update successful:", field, newValue);
       } catch (error) {
-        console.warn("Data context update failed:", error)
+        console.warn("Data context update failed:", error);
       }
     }
     
-    // Update local state
-    isActive = newValue;
+    // Method 4: Direct row update if available
+    if (currentRow && field) {
+      try {
+        currentRow[field] = newValue;
+        updateSuccess = true;
+        console.log("Direct row update successful:", field, newValue);
+      } catch (error) {
+        console.warn("Direct row update failed:", error);
+      }
+    }
     
-    // Dispatch custom event for parent components
+    // Method 5: Dispatch change event
     component.dispatchEvent("change", { 
       value: newValue,
-      field: field 
+      field: field,
+      component: component
+    });
+    
+    // Additional logging for debugging
+    console.log("Toggle update summary:", {
+      field,
+      newValue,
+      updateSuccess,
+      formContext: !!formContext,
+      dataContext: !!dataContext,
+      currentRow: !!currentRow,
+      formValues: formContext?.values
     });
   };
   
   // Expose methods for external control
-  export const setValue = (value) => {
-    isActive = !!value
+  export const setValue = (newValue) => {
+    isActive = !!newValue;
+    if (formContext && formContext.setValue && field) {
+      formContext.setValue(field, isActive);
+    }
   }
   
   export const getValue = () => isActive;
