@@ -1,5 +1,5 @@
 <script>
-  import { getContext } from "svelte"
+  import { getContext, onMount, onDestroy } from "svelte"
 
   const { styleable, Provider } = getContext("sdk")
   const component = getContext("component")
@@ -13,87 +13,82 @@
   export let field = "";
   export let label = "";
   export let disabled = false;
-  export let defaultValue = "false"; // Text input for JavaScript code
-  export let value = null; // Allow external value binding
+  export let defaultValue = "false";
+  export let value = null;
+  export let validation = null;
   
   // Get contexts
   const formContext = getContext("form")
   const dataContext = getContext("data")
+  const fieldGroupContext = getContext("field-group")
   
-  // Function to safely evaluate JavaScript code
+  // Function to safely evaluate default value
   const evaluateDefaultValue = (code) => {
     if (!code) return false;
-    
-    // Simple boolean strings
     if (code === "true") return true;
     if (code === "false") return false;
-    
-    // If it contains JavaScript-like syntax, try to evaluate
-    if (typeof code === 'string' && code.includes('$')) {
-      try {
-        // Access Budibase's $ function through window or globalThis
-        const budibaseHelper = (typeof window !== 'undefined' && window.$) || 
-                              (typeof globalThis !== 'undefined' && globalThis.$);
-        
-        if (!budibaseHelper) {
-          console.warn("Budibase $ helper not available");
-          return false;
-        }
-        
-        // Replace $ with the actual function call
-        let evaluationCode = code;
-        
-        // Create a function that executes the code
-        const funcBody = 'try {' +
-          (evaluationCode.includes('return') ? evaluationCode : 'return ' + evaluationCode) +
-          '} catch (e) {' +
-            'console.error("Error in default value evaluation:", e);' +
-            'return false;' +
-          '}';
-          
-        const func = new Function('$', funcBody);
-        
-        const result = func(budibaseHelper);
-        console.log("Evaluated default value:", code, "->", result);
-        return !!result;
-        
-      } catch (error) {
-        console.warn("Error evaluating defaultValue:", error);
-        return false;
-      }
-    }
-    
-    // Fallback: convert to boolean
     return !!code;
   };
   
-  // Internal state - evaluate the defaultValue on initialization
-  let isActive = value !== null ? !!value : evaluateDefaultValue(defaultValue);
+  // Internal state
+  let isActive = false;
+  let fieldApi;
+  let unsubscribe;
   
-  // Watch for external value changes
-  $: if (value !== null) {
-    isActive = !!value;
-  } else {
-    // Re-evaluate defaultValue when it changes
-    isActive = evaluateDefaultValue(defaultValue);
+  // Initialize value
+  $: {
+    if (value !== null && value !== undefined) {
+      isActive = !!value;
+    } else {
+      isActive = evaluateDefaultValue(defaultValue);
+    }
   }
   
-  // Get current row data if available
-  $: currentRow = $dataContext?.rows?.[0] || $dataContext || {}
+  // Register field with form on mount
+  onMount(() => {
+    if (formContext?.formApi && field) {
+      try {
+        // Register this field with the form
+        fieldApi = formContext.formApi.registerField(
+          field,
+          "boolean", // field type
+          isActive,  // initial value
+          false,     // disabled state
+          validation // validation rules
+        );
+        
+        // Subscribe to field changes
+        if (fieldApi && fieldApi.subscribe) {
+          unsubscribe = fieldApi.subscribe((fieldState) => {
+            if (fieldState.value !== isActive) {
+              isActive = !!fieldState.value;
+            }
+          });
+        }
+        
+        console.log("✅ Field registered successfully:", field);
+      } catch (error) {
+        console.warn("Failed to register field:", error);
+      }
+    }
+  });
   
-  // Sync with data context if field is specified
-  $: if (field && currentRow && currentRow.hasOwnProperty(field)) {
-    isActive = !!currentRow[field]
-  } else if (field && $dataContext && $dataContext.hasOwnProperty(field)) {
-    isActive = !!$dataContext[field]
+  // Cleanup on destroy
+  onDestroy(() => {
+    if (unsubscribe) {
+      unsubscribe();
+    }
+  });
+  
+  // Handle data context changes
+  $: if (dataContext && field && dataContext.hasOwnProperty(field)) {
+    const contextValue = dataContext[field];
+    if (contextValue !== isActive) {
+      isActive = !!contextValue;
+    }
   }
   
-  // Watch for changes in form data and sync
-  $: if (formContext && formContext.values && field && formContext.values.hasOwnProperty(field)) {
-    isActive = !!formContext.values[field];
-  }
-  
-  // Data context for child components
+  // Component data context for child components
   $: componentDataContext = {
     isActive,
     value: isActive,
@@ -107,145 +102,114 @@
     
     const newValue = !isActive;
     
-    // CRITICAL: Ensure we never send null, undefined, or any non-boolean value
-    const valueToSave = Boolean(newValue); // Force to proper boolean
-    
     console.log("Toggle clicked:", {
       field,
       currentValue: isActive,
-      newValue: valueToSave,
-      type: typeof valueToSave
+      newValue: newValue,
+      type: typeof newValue
     });
     
-    // Update local state first
-    isActive = valueToSave;
+    // Update local state
+    isActive = newValue;
     
-    // Only proceed if we have a valid field name
     if (!field) {
-      console.warn("No field specified for toggle - value won't be saved");
+      console.warn("No field specified for toggle");
       return;
     }
     
-    // Try multiple methods to ensure the value is saved
     let updateSuccess = false;
     
-    // Method 1: Use formApi.setValue (correct Budibase method)
-    if (formContext && formContext.formApi && typeof formContext.formApi.setValue === 'function') {
+    // Method 1: Use the registered field API (preferred)
+    if (fieldApi && typeof fieldApi.setValue === 'function') {
       try {
-        formContext.formApi.setValue(field, valueToSave);
+        fieldApi.setValue(newValue);
         updateSuccess = true;
-        console.log("✅ formApi.setValue successful:", field, "=", valueToSave);
+        console.log("✅ fieldApi.setValue successful:", field, "=", newValue);
       } catch (error) {
-        console.warn("❌ formApi.setValue failed:", error);
+        console.warn("❌ fieldApi.setValue failed:", error);
       }
     }
     
-    // Method 2: Use formApi.updateValue (alternative)
-    if (!updateSuccess && formContext && formContext.formApi && typeof formContext.formApi.updateValue === 'function') {
+    // Method 2: Use formApi.setFieldValue (correct Budibase method)
+    if (!updateSuccess && formContext?.formApi?.setFieldValue) {
       try {
-        formContext.formApi.updateValue(field, valueToSave);
+        formContext.formApi.setFieldValue(field, newValue);
         updateSuccess = true;
-        console.log("✅ formApi.updateValue successful:", field, "=", valueToSave);
+        console.log("✅ formApi.setFieldValue successful:", field, "=", newValue);
       } catch (error) {
-        console.warn("❌ formApi.updateValue failed:", error);
+        console.warn("❌ formApi.setFieldValue failed:", error);
       }
     }
     
-    // Method 3: Direct formState update
-    if (!updateSuccess && formContext && formContext.formState) {
+    // Method 3: Try fieldGroup context (for field groups)
+    if (!updateSuccess && fieldGroupContext?.setValue) {
       try {
-        if (formContext.formState.values) {
-          formContext.formState.values[field] = valueToSave;
-          updateSuccess = true;
-          console.log("✅ formState.values update successful:", field, "=", valueToSave);
-        }
-      } catch (error) {
-        console.warn("❌ formState.values update failed:", error);
-      }
-    }
-    
-    // Method 4: Try dataSource if available
-    if (!updateSuccess && formContext && formContext.dataSource && typeof formContext.dataSource.setValue === 'function') {
-      try {
-        await formContext.dataSource.setValue(field, valueToSave);
+        fieldGroupContext.setValue(field, newValue);
         updateSuccess = true;
-        console.log("✅ dataSource.setValue successful:", field, "=", valueToSave);
+        console.log("✅ fieldGroupContext.setValue successful:", field, "=", newValue);
       } catch (error) {
-        console.warn("❌ dataSource.setValue failed:", error);
+        console.warn("❌ fieldGroupContext.setValue failed:", error);
       }
     }
     
-    // Method 5: Try dataSource update
-    if (!updateSuccess && formContext && formContext.dataSource && typeof formContext.dataSource.update === 'function') {
+    // Method 4: Direct form state update (fallback)
+    if (!updateSuccess && formContext?.formState?.update) {
       try {
-        const updateData = {};
-        updateData[field] = valueToSave;
-        await formContext.dataSource.update(updateData);
-        updateSuccess = true;
-        console.log("✅ dataSource.update successful:", field, "=", valueToSave);
-      } catch (error) {
-        console.warn("❌ dataSource.update failed:", error);
-      }
-    }
-    
-    // Method 5: Dispatch change event (fix the dispatchEvent error)
-    try {
-      if (component && typeof component.dispatchEvent === 'function') {
-        component.dispatchEvent("change", { 
-          value: valueToSave,
-          field: field,
-          component: component
+        formContext.formState.update(state => {
+          if (!state.values) state.values = {};
+          state.values[field] = newValue;
+          return state;
         });
-      } else {
-        // Alternative dispatch method for Budibase
-        if (typeof component?.dispatchComponentEvent === 'function') {
-          component.dispatchComponentEvent("change", { 
-            value: valueToSave,
-            field: field 
-          });
-        }
+        updateSuccess = true;
+        console.log("✅ formState.update successful:", field, "=", newValue);
+      } catch (error) {
+        console.warn("❌ formState.update failed:", error);
       }
+    }
+    
+    // Dispatch change event
+    try {
+      component?.dispatchEvent?.("change", { 
+        value: newValue,
+        field: field
+      });
     } catch (error) {
       console.warn("Error dispatching event:", error);
     }
-    // Final logging and error checking
+    
+    // Debug logging
     console.log("🔍 Toggle update summary:", {
       field,
-      newValue: valueToSave,
-      valueType: typeof valueToSave,
+      newValue,
+      valueType: typeof newValue,
       updateSuccess,
-      formContext: !!formContext,
-      formApiMethods: formContext?.formApi ? Object.keys(formContext.formApi) : 'no formApi',
-      formStateMethods: formContext?.formState ? Object.keys(formContext.formState) : 'no formState',
-      dataSourceMethods: formContext?.dataSource ? Object.keys(formContext.dataSource) : 'no dataSource',
-      formStateValues: formContext?.formState?.values ? formContext.formState.values[field] : 'no values'
+      hasFormContext: !!formContext,
+      hasFieldApi: !!fieldApi,
+      formApiMethods: formContext?.formApi ? Object.keys(formContext.formApi) : 'none'
     });
     
     if (!updateSuccess) {
-      console.error("🚨 CRITICAL: Failed to update any form context - this will cause null value error!");
-      console.log("🔧 Try these debugging steps:");
-      console.log("1. Check if your component is inside a Form Block");
-      console.log("2. Check if the form is bound to a data source");
-      console.log("3. Verify the field name matches your database column");
+      console.error("🚨 CRITICAL: Failed to update form field!");
+      console.log("🔧 Debugging info:");
+      console.log("- Form context available:", !!formContext);
+      console.log("- Field API available:", !!fieldApi);
+      console.log("- Field name:", field);
       
-      // Log available methods for debugging
       if (formContext?.formApi) {
-        console.log("Available formApi methods:", Object.keys(formContext.formApi));
-      }
-      if (formContext?.formState) {
-        console.log("Available formState properties:", Object.keys(formContext.formState));
-      }
-      if (formContext?.dataSource) {
-        console.log("Available dataSource methods:", Object.keys(formContext.dataSource));
+        console.log("- Available formApi methods:", Object.keys(formContext.formApi));
       }
     }
   };
   
   // Expose methods for external control
   export const setValue = (newValue) => {
-    isActive = !!newValue;
-    if (formContext && formContext.setValue && field) {
-      formContext.setValue(field, isActive);
+    const boolValue = !!newValue;
+    isActive = boolValue;
+    
+    if (fieldApi?.setValue) {
+      fieldApi.setValue(boolValue);
+    } else if (formContext?.formApi?.setFieldValue && field) {
+      formContext.formApi.setFieldValue(field, boolValue);
     }
   }
   
